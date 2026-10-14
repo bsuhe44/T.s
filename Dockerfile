@@ -8,6 +8,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py .
 COPY templates templates
+RUN mkdir -p static
 COPY static static
 ENV PROXY_MODE=process PROXY_PORT=8443 DATA_DIR=/data
 CMD ["python", "app.py"]
