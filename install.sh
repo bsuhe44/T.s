@@ -24,7 +24,7 @@ apt-get install -y python3 python3-venv python3-pip git curl
 
 # --- panel
 mkdir -p "$APP"
-cp -r "$SRC/app.py" "$SRC/templates" "$SRC/static" "$SRC/requirements.txt" "$APP/"
+cp -r "$SRC/app.py" "$SRC/requirements.txt" "$APP/"
 python3 -m venv "$APP/venv"
 "$APP/venv/bin/pip" install -q -r "$APP/requirements.txt"
 
