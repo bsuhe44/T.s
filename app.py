@@ -18,7 +18,7 @@ import time
 import urllib.request
 from functools import wraps
 
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, jsonify, redirect, render_template_string, request, session, url_for
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.environ.get("DATA_DIR", os.path.join(BASE, "data"))
@@ -58,6 +58,133 @@ app.secret_key = open(_key_path).read().strip()
 
 _lock = threading.RLock()
 _state = {"proxy_up": False}
+
+
+# ------------------------------------------------------------ embedded pages
+LOGIN_HTML = """<!doctype html>
+<html lang="fa" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SIWANKURDSH - ورود</title>
+<style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0f1419;color:#e6e9ee;font-family:Tahoma,system-ui,sans-serif}
+.card{width:100%;max-width:340px;background:#1a212b;border:1px solid #2a3340;border-radius:14px;padding:28px}
+h1{margin:0 0 20px;font-size:20px;text-align:center;letter-spacing:1px}
+input{width:100%;padding:11px 12px;margin-bottom:12px;background:#0f1419;border:1px solid #2a3340;border-radius:8px;color:#e6e9ee;font-size:15px}
+input:focus{outline:none;border-color:#3b82f6}
+button{width:100%;padding:11px;background:#3b82f6;border:0;border-radius:8px;color:#fff;font-size:15px;cursor:pointer}
+.err{background:#3a1d1d;color:#ffb4b4;padding:9px 11px;border-radius:8px;margin-bottom:12px;font-size:13px}
+</style></head><body>
+<form class="card" method="post">
+<h1>SIWANKURDSH</h1>
+{% if error %}<div class="err">{{ error }}</div>{% endif %}
+<input name="username" placeholder="نام کاربری" autocomplete="username" required autofocus dir="ltr">
+<input name="password" type="password" placeholder="رمز عبور" autocomplete="current-password" required dir="ltr">
+<button type="submit">ورود</button>
+</form></body></html>"""
+
+PANEL_HTML = """<!doctype html>
+<html lang="fa" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SIWANKURDSH</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#0f1419;color:#e6e9ee;font-family:Tahoma,system-ui,sans-serif;font-size:14px}
+header{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:#1a212b;border-bottom:1px solid #2a3340}
+header h1{margin:0;font-size:17px;letter-spacing:1px}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#ef4444;margin-left:6px}
+.dot.up{background:#22c55e}
+a{color:#7aa7ff;text-decoration:none}
+main{max-width:980px;margin:0 auto;padding:16px}
+.box{background:#1a212b;border:1px solid #2a3340;border-radius:12px;padding:16px;margin-bottom:16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+label{display:block;font-size:12px;color:#9aa6b5;margin-bottom:4px}
+input{width:100%;padding:9px 10px;background:#0f1419;border:1px solid #2a3340;border-radius:8px;color:#e6e9ee;font-size:14px}
+input:focus{outline:none;border-color:#3b82f6}
+button{padding:8px 12px;background:#3b82f6;border:0;border-radius:8px;color:#fff;font-size:13px;cursor:pointer}
+button.g{background:#2a3340}button.r{background:#b91c1c}
+.row{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.user{border:1px solid #2a3340;border-radius:10px;padding:12px;margin-bottom:10px;background:#141a22}
+.top{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.name{font-weight:bold;font-size:15px}
+.badge{padding:2px 9px;border-radius:99px;font-size:12px}
+.active{background:#14532d;color:#86efac}.disabled{background:#374151;color:#d1d5db}
+.expired{background:#7c2d12;color:#fdba74}.limited{background:#7f1d1d;color:#fca5a5}
+.bar{height:7px;background:#0f1419;border-radius:99px;overflow:hidden;margin:9px 0 5px}
+.bar>div{height:100%;background:#3b82f6}
+.meta{color:#9aa6b5;font-size:12px;display:flex;gap:14px;flex-wrap:wrap}
+.note{color:#9aa6b5;font-size:12px;margin-top:4px}
+.empty{text-align:center;color:#9aa6b5;padding:24px}
+#toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#22c55e;color:#04210f;padding:9px 16px;border-radius:8px;display:none;font-size:13px}
+#toast.e{background:#ef4444;color:#fff}
+</style></head><body>
+<header><h1>SIWANKURDSH</h1>
+<div><span id="st" class="dot"></span><span id="stt">پروکسی</span> &nbsp;|&nbsp; <a href="/logout">خروج</a></div></header>
+<main>
+<div class="box"><b>ساخت کاربر جدید</b>
+<div class="grid" style="margin-top:10px">
+<div><label>نام</label><input id="n_name"></div>
+<div><label>حجم (GB) - 0 = نامحدود</label><input id="n_quota" type="number" min="0" step="any" value="0"></div>
+<div><label>انقضا (روز) - 0 = نامحدود</label><input id="n_days" type="number" min="0" step="any" value="0"></div>
+<div><label>اتصال همزمان - 0 = نامحدود</label><input id="n_conns" type="number" min="0" value="0"></div>
+<div><label>یادداشت</label><input id="n_note"></div>
+</div>
+<div class="row"><button onclick="createUser()">ساخت کاربر</button></div></div>
+<div id="list"></div>
+</main><div id="toast"></div>
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ST={active:'فعال',disabled:'غیرفعال',expired:'منقضی',limited:'حجم تمام'};
+let USERS=[];
+function toast(m,e){const t=$('toast');t.textContent=m;t.className=e?'e':'';t.style.display='block';setTimeout(()=>t.style.display='none',2200)}
+async function api(url,method,body){
+  const r=await fetch(url,{method:method||'GET',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+  if(r.status===401){location='/login';return null}
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok){toast(d.error||'خطا',true);return null}
+  return d}
+function fmt(b){const u=['B','KB','MB','GB','TB'];let i=0;b=Number(b);while(b>=1024&&i<4){b/=1024;i++}return b.toFixed(i?2:0)+' '+u[i]}
+function exp(t){if(!t)return 'بدون انقضا';const d=Math.ceil((t*1000-Date.now())/864e5);return d>0?d+' روز مانده':'منقضی شده'}
+async function load(){
+  const d=await api('/api/users');if(!d)return;
+  USERS=d.users;$('st').className='dot'+(d.proxy_up?' up':'');
+  $('stt').textContent=d.proxy_up?'پروکسی روشن':'پروکسی خاموش';
+  const l=$('list');
+  if(!USERS.length){l.innerHTML='<div class="empty">هنوز کاربری ساخته نشده</div>';return}
+  l.innerHTML=USERS.map(u=>{
+    const p=u.quota_bytes?Math.min(100,u.used_bytes/u.quota_bytes*100):0;
+    return `<div class="user"><div class="top"><span class="name">${esc(u.name)}</span>
+<span class="badge ${u.status}">${ST[u.status]}</span></div>
+<div class="bar"><div style="width:${p}%"></div></div>
+<div class="meta"><span>مصرف: ${fmt(u.used_bytes)} / ${u.quota_bytes?fmt(u.quota_bytes):'نامحدود'}</span>
+<span>${exp(u.expire_at)}</span><span>اتصال: ${u.max_conns||'نامحدود'}</span></div>
+${u.note?`<div class="note">${esc(u.note)}</div>`:''}
+<div class="row">
+<button onclick="cp(${u.id},'tg_link')">کپی لینک tg</button>
+<button class="g" onclick="cp(${u.id},'web_link')">کپی لینک t.me</button>
+<button class="g" onclick="edit(${u.id})">ویرایش</button>
+<button class="g" onclick="toggle(${u.id},${!u.enabled})">${u.enabled?'غیرفعال':'فعال'}</button>
+<button class="g" onclick="resetU(${u.id})">ریست مصرف</button>
+<button class="r" onclick="del(${u.id})">حذف</button></div></div>`}).join('')}
+async function createUser(){
+  const d=await api('/api/users','POST',{name:$('n_name').value,quota_gb:$('n_quota').value,
+    expire_days:$('n_days').value,max_conns:$('n_conns').value,note:$('n_note').value});
+  if(d){toast('ساخته شد');$('n_name').value='';$('n_note').value='';load()}}
+function cp(id,k){
+  const u=USERS.find(x=>x.id===id),t=u[k];
+  (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('کپی شد'),()=>prompt('لینک را کپی کنید:',t))}
+async function edit(id){
+  const u=USERS.find(x=>x.id===id);
+  const q=prompt('حجم (GB) - 0 = نامحدود',u.quota_bytes/1073741824);if(q===null)return;
+  const d=prompt('انقضا از امروز (روز) - 0 = نامحدود، خالی = بدون تغییر','');if(d===null)return;
+  const c=prompt('اتصال همزمان - 0 = نامحدود',u.max_conns);if(c===null)return;
+  const body={quota_gb:q,max_conns:c};if(d!=='')body.expire_days=d;
+  if(await api('/api/users/'+id,'PATCH',body)){toast('ذخیره شد');load()}}
+async function toggle(id,en){if(await api('/api/users/'+id,'PATCH',{enabled:en}))load()}
+async function resetU(id){if(confirm('مصرف صفر شود؟')&&await api('/api/users/'+id+'/reset','POST'))load()}
+async function del(id){if(confirm('کاربر حذف شود؟')&&await api('/api/users/'+id,'DELETE'))load()}
+load();setInterval(load,15000);
+</script></body></html>"""
 
 
 # ---------------------------------------------------------------- database
@@ -238,7 +365,7 @@ def login():
             count += 1
             _fails[ip] = (count, time.time() + 300 if count >= 5 else 0)
             error = "نام کاربری یا رمز عبور اشتباه است."
-    return render_template("login.html", error=error)
+    return render_template_string(LOGIN_HTML, error=error)
 
 
 @app.route("/logout")
@@ -274,7 +401,7 @@ def serialize(u, host):
 @app.route("/")
 @login_required(page=True)
 def index():
-    return render_template("panel.html")
+    return PANEL_HTML
 
 
 @app.route("/api/users", methods=["GET"])
